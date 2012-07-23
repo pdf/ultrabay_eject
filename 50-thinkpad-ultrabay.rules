@@ -1,0 +1,1 @@
+ENV{BAY_EVENT}=="3", ACTION=="change", SUBSYSTEM=="scsi", RUN+="/usr/local/sbin/ultrabay_eject"

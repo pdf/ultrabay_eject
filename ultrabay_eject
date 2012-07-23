@@ -1,0 +1,101 @@
+#!/bin/bash
+
+# Change the following DEVPATH= to match your system, if you want to run this directly instead of having it called by the udev eject script
+# To find the right value, insert the UltraBay optical drive and run:
+# udevadm info --query=path --name=/dev/sr0 | perl -pe 's!/block/...$!!'
+if [ "$DEVPATH" = "" ]
+then
+   DEVPATH="/devices/pci0000:00/0000:00:1f.2/host1/target1:0:0/1:0:0:0"
+fi
+
+shopt -s nullglob
+export DISPLAY=:0.0 # required for notify-send
+ULTRABAY_SYSDIR=/sys$DEVPATH
+
+# Find generic dock interface for UltraBay
+dock=$( /bin/grep -l ata_bay /sys/devices/platform/dock.?/type )
+dock=${dock%%/type}
+if [ -n "$dock" -a -d "$dock" ]; then
+        logger ultrabay_eject starting eject of $dock
+else
+        logger ultrabay_eject cannot locate bay dock device
+        notify-send -u critical -t 100000 "ThinkPad Ultrabay eject failed" "Cannot locate bay dock device"
+fi
+
+# Umount the filesystem(s) backed by the given major:minor device(s)
+unmount_rdev() { perl - "$@" <<'EOPERL'  # let's do it in Perl
+        for $major_minor (@ARGV) {
+                $major_minor =~ m/^(\d+):(\d+)$/ or die;
+                push(@tgt_rdevs, ($1<<8)|$2);
+        }
+        # Sort by reverse length of mount point, to unmount sub-directories first
+        open MOUNTS,"</proc/mounts" or die "$!";
+        @mounts=sort { length($b->[1]) <=> length($a->[1]) } map { [ split ] } <MOUNTS>;
+        close MOUNTS;
+        foreach $m (@mounts) {
+                ($dev,$dir)=@$m;
+                next unless -b $dev;  $rdev=(stat($dev))[6];
+                next unless grep($_==$rdev, @tgt_rdevs);
+                system("umount","-v","$dir")==0  or  $bad=1;
+                if ($bad == 1) {
+                        system("logger","ultrabay_eject","ERROR unmounting",$dev,$dir);
+                        system("notify-send -u critical -t 100000 \"Error unmounting $dir\" \"Unmounting of $dir on $dev failed!\"");
+                } else {
+                        system("logger","ultrabay_eject","unmounted",$dev,$dir);
+                        system("notify-send -u normal -t 5000 \"Unmounted $dir\"");
+                };
+        }
+        exit 1 if $bad;
+EOPERL
+}
+
+# Get the UltraBay's /dev/foo block device node
+ultrabay_dev_node() {
+        UDEV_PATH="`readlink -e "$ULTRABAY_SYSDIR/block/"*`" || return 1
+        UDEV_NAME="`udevadm info --query=name --path=$UDEV_PATH`" || return 1
+        echo /dev/$UDEV_NAME
+}
+
+if [ $( cat $dock/docked ) == 0 ]; then
+        logger ultrabay_eject dock reports empty
+else 
+	if [ -d $ULTRABAY_SYSDIR ]; then
+		logger ultrabay_eject dock occupied, shutting down storage device $DEVPATH
+		sync
+		# Unmount filesystems backed by this device
+		## This seems to be very inelegant and prone to failure
+		unmount_rdev `cat $ULTRABAY_SYSDIR/block/*/dev     \
+				  $ULTRABAY_SYSDIR/block/*/*/dev`  \
+		|| {
+			logger ultrabay_eject umounting failed
+			echo 2 > /proc/acpi/ibm/beep  # triple error tone
+			notify-send -u critical -t 100000 "ThinkPad Ultrabay eject failed" "Please do not pull the device, doing so could cause file corruption and possibly hang the system. Unmounting of the filesystem on the ThinkPad Ultrabay device failed. Please put the eject leaver back in place, and try to unmount the filesystem manually. If this succeeds you can try the eject again"
+			exit 1;
+		}
+		sync
+		# Nicely power off the device
+		DEVNODE=`ultrabay_dev_node` && hdparm -Y $DEVNODE
+		# Let HAL+KDE notice the unmount and let the disk spin down
+		sleep 0.5
+		# Unregister this SCSI device:
+		sync
+		echo 1 > $ULTRABAY_SYSDIR/delete
+	else
+		logger ultrabay_eject bay occupied but incorrect device path $DEVPATH
+		notify-send -u critical -t 100000 "ThinkPad Ultrabay eject failed" "Bay occupied but incorrect device path"
+		echo 2 > /proc/acpi/ibm/beep  # triple error tone
+		exit 1
+	fi
+fi
+
+# We need sleep here so someone can disconnect the bay and the drive
+sleep 1
+
+# Turn off power to the UltraBay
+logger ultrabay_eject undocking $dock
+echo 1 > $dock/undock
+
+# Tell the user we're OK
+logger ultrabay_eject done
+echo 12 > /proc/acpi/ibm/beep
+notify-send -u normal -t 10000 "Safe to remove device" "The ThinkPad Ultrabay device can now safely be removed"
