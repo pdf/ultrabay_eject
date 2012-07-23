@@ -85,10 +85,8 @@ unmount_rdev() { perl - "$@" <<'EOPERL'  # let's do it in Perl
 		system("umount","-v","$dir")==0  or  $bad=1;
 		if ($bad == 1) {
 			system("logger","ultrabay_eject","ERROR unmounting",$dev,$dir);
-			system("notify-send -u critical -t 100000 \"Error unmounting $dir\" \"Unmounting of $dir on $dev failed!\"");
 		} else {
 			system("logger","ultrabay_eject","unmounted",$dev,$dir);
-			system("notify-send -u normal -t 5000 \"Unmounted $dir\"");
 		};
 	}
 	exit 1 if $bad;
