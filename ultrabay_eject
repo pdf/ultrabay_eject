@@ -5,7 +5,7 @@
 # udevadm info --query=path --name=/dev/sr0 | perl -pe 's!/block/...$!!'
 DEVPATH=''
 
-LOG_TARGETS='syslog'
+LOG_TARGETS='syslog libnotify'
 
 die() {
 	echo "$1" >&2
@@ -26,19 +26,20 @@ log() {
 			   else
 				   priority='notice'
 			   fi
-				logger -p $priority "ultrabay_eject: $title - $msg"
+				logger -p $priority "ultrabay_eject: $title - $msg" &
 				;;
 			libnotify)
-				notify-send -u $level -t $timeout "$title" "$msg"
+				su $DISP0_USER -c "notify-send -i media-eject -u $level -t $timeout \"$title\" \"$msg\"" > /dev/null 2>&1 &
 				;;
 			kde)
-				kdialog --icon media-eject --title "$title" --passivepopup "$msg" $timeout
+				su $DISP0_USER -c "kdialog --icon media-eject --title \"$title\" --passivepopup \"$msg\" $(($timeout / 1000))" > /dev/null 2>&1 &
+				
 				;;
 			*)
 				if [ -n "$level" -a "$level" = "critical" ]; then
-					echo "$title - $msg" >&1
+					echo "$title - $msg" >&1 &
 				else
-					echo "$title - $msg"
+					echo "$title - $msg" &
 				fi
 				;;
 		esac
@@ -48,12 +49,15 @@ log() {
 [ -z "$DEVPATH" ] && die "Device path not set"
 
 shopt -s nullglob
-export DISPLAY=:0.0 # required for notify-send
-ULTRABAY_SYSDIR=/sys$DEVPATH
+export DISPLAY=":0" # required for notify-send
+ULTRABAY_SYSDIR="/sys${DEVPATH}"
 
-DISP0_USER=`lastlog | grep "[[:space:]]:0" | awk '{ print $1 }'` # the [[:space:]] before the :0 is needed to exclude ipv6 adresses
-DISP0_USER_HOME=`getent passwd ${DISP0_USER} | cut -d':' -f6`
-export XAUTHORITY=${DISP0_USER_HOME}/.Xauthority # also required for notify-send'`]
+DISP0_PID=$(pgrep -f "\-${DISPLAY}")
+DISP0_USER_PID=$(cat /proc/${DISP0_PID}/task/${DISP0_PID}/children |cut -d' ' -f1)
+DISP0_USER=$(cat /proc/${DISP0_USER_PID}/environ |tr '\0' '\n' |grep -e '^USER' |cut -d'=' -f2)
+DISP0_USER_HOME=$(cat /proc/${DISP0_USER_PID}/environ |tr '\0' '\n' |grep -e '^HOME' |cut -d'=' -f2)
+XAUTHORITY="${DISP0_USER_HOME}/.Xauthority" # also required for notify-send'`]
+[ -f "$XAUTHORITY" ] && export XAUTHORITY
 
 # Find generic dock interface for UltraBay
 dock=$( /bin/grep -l ata_bay /sys/devices/platform/dock.?/type )
