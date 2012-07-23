@@ -51,6 +51,10 @@ shopt -s nullglob
 export DISPLAY=:0.0 # required for notify-send
 ULTRABAY_SYSDIR=/sys$DEVPATH
 
+DISP0_USER=`lastlog | grep "[[:space:]]:0" | awk '{ print $1 }'` # the [[:space:]] before the :0 is needed to exclude ipv6 adresses
+DISP0_USER_HOME=`getent passwd ${DISP0_USER} | cut -d':' -f6`
+export XAUTHORITY=${DISP0_USER_HOME}/.Xauthority # also required for notify-send'`]
+
 # Find generic dock interface for UltraBay
 dock=$( /bin/grep -l ata_bay /sys/devices/platform/dock.?/type )
 dock=${dock%%/type}
