@@ -17,6 +17,7 @@ local_dir="$(dirname "$0")"
 
 install -o root -g root -m 0755 "${local_dir}/ultrabay_eject" /usr/local/sbin/ || die "Could not install script"
 install -o root -g root -m 0644 "${local_dir}/50-thinkpad-ultrabay.rules" /etc/udev/rules.d/ || die "Could not install UDEV rules"
+[ -n "`which chcon`" ] && chcon system_u:object_r:etc_runtime_t:s0 /etc/udev/rules.d/50-thinkpad-ultrabay.rules > /dev/null 2>&1
 
 sed -e "s#^DEVPATH=''#DEVPATH='$dev_path'#g" -i /usr/local/sbin/ultrabay_eject
 
