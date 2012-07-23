@@ -22,11 +22,13 @@ log() {
 		case $l in
 			syslog)
 				if [ -n "$level" -a "$level" = "critical" ]; then
-				   priority='crit'
-			   else
-				   priority='notice'
-			   fi
-				logger -p $priority "ultrabay_eject: $title - $msg" &
+					priority='crit'
+				else
+					priority='notice'
+				fi
+				out="$msg"
+				[ -n "$title" ] && out="$title - $msg"
+				logger -p $priority "ultrabay_eject: $out" &
 				;;
 			libnotify)
 				su $DISP0_USER -c "notify-send -i media-eject -u $level -t $timeout \"$title\" \"$msg\"" > /dev/null 2>&1 &
